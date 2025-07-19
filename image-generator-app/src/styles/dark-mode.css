@@ -1,0 +1,62 @@
+/* Dark mode utilities for Aigenr design system */
+
+.dark {
+  --aigenr-page: #1A1A1A;
+  --aigenr-container: #2D2D2D;
+  --aigenr-dark: #FFFFFF;
+  --aigenr-green: #10B981;
+  --aigenr-green-light: #86EFAC;
+  --aigenr-green-hover: #059669;
+  --aigenr-gray: #9CA3AF;
+  --aigenr-gray-light: #374151;
+  --aigenr-shadow: #000000;
+  --aigenr-star: #A7F3D0;
+}
+
+.dark .bg-aigenr-page {
+  background-color: var(--aigenr-page);
+}
+
+.dark .bg-aigenr-container {
+  background-color: var(--aigenr-container);
+}
+
+.dark .text-aigenr-dark {
+  color: var(--aigenr-dark);
+}
+
+.dark .text-aigenr-gray {
+  color: var(--aigenr-gray);
+}
+
+.dark .bg-aigenr-gray-light {
+  background-color: var(--aigenr-gray-light);
+}
+
+.dark .border-aigenr-dark {
+  border-color: var(--aigenr-dark);
+}
+
+.dark .shadow-aigenr-card {
+  box-shadow: 4px 4px 0px var(--aigenr-shadow);
+}
+
+.dark .shadow-aigenr-container {
+  box-shadow: 8px 8px 0px var(--aigenr-shadow);
+}
+
+.dark .shadow-aigenr-button {
+  box-shadow: 4px 4px 0px var(--aigenr-shadow);
+}
+
+.dark .shadow-aigenr-button-hover {
+  box-shadow: 2px 2px 0px var(--aigenr-shadow);
+}
+
+.dark .shadow-aigenr-hard {
+  box-shadow: 4px 4px 0px var(--aigenr-shadow);
+}
+
+.dark .shadow-aigenr-hard-hover {
+  box-shadow: 2px 2px 0px var(--aigenr-shadow);
+}

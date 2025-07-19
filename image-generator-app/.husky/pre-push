@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Run all tests before pushing
+npm run test:run
+
+# Run linting
+npm run lint
+
+# Run type checking
+npm run type-check
+
+# Run build to ensure it works
+npm run build

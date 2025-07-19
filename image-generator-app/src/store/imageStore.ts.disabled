@@ -1,0 +1,272 @@
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+import { GeneratedImage } from '../types';
+import { doc, collection, addDoc, deleteDoc, updateDoc, getDocs, query, where, orderBy } from 'firebase/firestore';
+import { db } from '../services/firebase';
+
+interface GalleryStore {
+  savedImages: GeneratedImage[];
+  isLoading: boolean;
+  error: string | null;
+  saveToGallery: (image: GeneratedImage, userId?: string) => Promise<void>;
+  removeFromGallery: (id: string, userId?: string) => Promise<void>;
+  updateImage: (id: string, updates: Partial<GeneratedImage>, userId?: string) => Promise<void>;
+  clearGallery: (userId?: string) => Promise<void>;
+  isImageSaved: (id: string) => boolean;
+  loadUserGallery: (userId: string) => Promise<void>;
+  migrateAnonymousImages: (userId: string) => Promise<void>;
+  setLoading: (loading: boolean) => void;
+  setError: (error: string | null) => void;
+}
+
+export const useGalleryStore = create<GalleryStore>()(
+  persist(
+    (set, get) => ({
+      savedImages: [],
+      isLoading: false,
+      error: null,
+      
+      saveToGallery: async (image, userId) => {
+        try {
+          set({ isLoading: true, error: null });
+          
+          // Check if image is already saved
+          if (get().savedImages.some(img => img.id === image.id)) {
+            set({ isLoading: false });
+            return;
+          }
+          
+          if (userId) {
+            // Save to Firestore for authenticated users
+            const imageData = {
+              ...image,
+              userId,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            };
+            
+            await addDoc(collection(db, 'userImages'), imageData);
+          }
+          
+          // Update local state
+          set((state) => ({
+            savedImages: [image, ...state.savedImages],
+            isLoading: false
+          }));
+        } catch (error) {
+          console.error('Error saving image:', error);
+          set({ 
+            error: 'Failed to save image', 
+            isLoading: false 
+          });
+        }
+      },
+      
+      removeFromGallery: async (id, userId) => {
+        try {
+          set({ isLoading: true, error: null });
+          
+          if (userId) {
+            // Remove from Firestore for authenticated users
+            const q = query(
+              collection(db, 'userImages'),
+              where('userId', '==', userId),
+              where('id', '==', id)
+            );
+            const querySnapshot = await getDocs(q);
+            
+            querySnapshot.forEach(async (document) => {
+              await deleteDoc(doc(db, 'userImages', document.id));
+            });
+          }
+          
+          // Update local state
+          set((state) => ({
+            savedImages: state.savedImages.filter(img => img.id !== id),
+            isLoading: false
+          }));
+        } catch (error) {
+          console.error('Error removing image:', error);
+          set({ 
+            error: 'Failed to remove image', 
+            isLoading: false 
+          });
+        }
+      },
+      
+      updateImage: async (id, updates, userId) => {
+        try {
+          set({ isLoading: true, error: null });
+          
+          if (userId) {
+            // Update in Firestore for authenticated users
+            const q = query(
+              collection(db, 'userImages'),
+              where('userId', '==', userId),
+              where('id', '==', id)
+            );
+            const querySnapshot = await getDocs(q);
+            
+            querySnapshot.forEach(async (document) => {
+              await updateDoc(doc(db, 'userImages', document.id), {
+                ...updates,
+                updatedAt: new Date()
+              });
+            });
+          }
+          
+          // Update local state
+          set((state) => ({
+            savedImages: state.savedImages.map(img => 
+              img.id === id ? { ...img, ...updates } : img
+            ),
+            isLoading: false
+          }));
+        } catch (error) {
+          console.error('Error updating image:', error);
+          set({ 
+            error: 'Failed to update image', 
+            isLoading: false 
+          });
+        }
+      },
+      
+      clearGallery: async (userId) => {
+        try {
+          set({ isLoading: true, error: null });
+          
+          if (userId) {
+            // Clear from Firestore for authenticated users
+            const q = query(
+              collection(db, 'userImages'),
+              where('userId', '==', userId)
+            );
+            const querySnapshot = await getDocs(q);
+            
+            querySnapshot.forEach(async (document) => {
+              await deleteDoc(doc(db, 'userImages', document.id));
+            });
+          }
+          
+          // Clear local state
+          set({ savedImages: [], isLoading: false });
+        } catch (error) {
+          console.error('Error clearing gallery:', error);
+          set({ 
+            error: 'Failed to clear gallery', 
+            isLoading: false 
+          });
+        }
+      },
+      
+      isImageSaved: (id) => {
+        const state = get();
+        return state.savedImages.some(img => img.id === id);
+      },
+      
+      loadUserGallery: async (userId) => {
+        try {
+          set({ isLoading: true, error: null });
+          
+          const q = query(
+            collection(db, 'userImages'),
+            where('userId', '==', userId),
+            orderBy('createdAt', 'desc')
+          );
+          const querySnapshot = await getDocs(q);
+          
+          const userImages: GeneratedImage[] = [];
+          querySnapshot.forEach((doc) => {
+            const data = doc.data();
+            userImages.push({
+              id: data.id,
+              url: data.url,
+              prompt: data.prompt,
+              timestamp: data.timestamp,
+              createdAt: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+              isGenerating: false
+            });
+          });
+          
+          set({ 
+            savedImages: userImages, 
+            isLoading: false 
+          });
+        } catch (error) {
+          console.error('Error loading user gallery:', error);
+          set({ 
+            error: 'Failed to load gallery', 
+            isLoading: false 
+          });
+        }
+      },
+      
+      migrateAnonymousImages: async (userId) => {
+        try {
+          set({ isLoading: true, error: null });
+          
+          const currentImages = get().savedImages;
+          
+          // Save current anonymous images to Firestore
+          for (const image of currentImages) {
+            const imageData = {
+              ...image,
+              userId,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            };
+            
+            await addDoc(collection(db, 'userImages'), imageData);
+          }
+          
+          set({ isLoading: false });
+        } catch (error) {
+          console.error('Error migrating anonymous images:', error);
+          set({ 
+            error: 'Failed to migrate images', 
+            isLoading: false 
+          });
+        }
+      },
+      
+      setLoading: (loading) => set({ isLoading: loading }),
+      setError: (error) => set({ error })
+    }),
+    {
+      name: 'gallery-storage',
+      partialize: (state) => ({
+        // Only persist savedImages for anonymous users
+        savedImages: state.savedImages
+      })
+    }
+  )
+);
+
+// Helper function to get authenticated user's ID
+const getUserId = () => {
+  try {
+    const authStore = localStorage.getItem('auth-store');
+    if (authStore) {
+      const { state } = JSON.parse(authStore);
+      return state?.user?.uid || null;
+    }
+  } catch (e) {
+    console.warn('Failed to get user ID:', e);
+  }
+  return null;
+};
+
+// Initialize gallery for authenticated users
+export const initializeGallery = async () => {
+  const userId = getUserId();
+  if (userId) {
+    try {
+      await useGalleryStore.getState().loadUserGallery(userId);
+    } catch (error) {
+      console.error('Failed to initialize gallery:', error);
+    }
+  }
+};
+
+// Legacy export for backward compatibility
+export const useImageStore = useGalleryStore;

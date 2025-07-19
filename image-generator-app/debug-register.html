@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Register Page</title>
+</head>
+<body>
+    <h1>Register Page Debug</h1>
+    <p>This will check if the register page is accessible.</p>
+    
+    <script>
+        // Test if register page loads
+        fetch('/register')
+            .then(response => response.text())
+            .then(html => {
+                document.body.innerHTML += '<h2>Register Page Content:</h2>';
+                document.body.innerHTML += '<textarea rows="20" cols="100">' + html + '</textarea>';
+                
+                // Check for Google button
+                if (html.includes('Google') || html.includes('google')) {
+                    document.body.innerHTML += '<p>✅ Google button found in HTML</p>';
+                } else {
+                    document.body.innerHTML += '<p>❌ Google button NOT found in HTML</p>';
+                }
+                
+                // Check for RegisterForm
+                if (html.includes('RegisterForm') || html.includes('register')) {
+                    document.body.innerHTML += '<p>✅ RegisterForm component present</p>';
+                } else {
+                    document.body.innerHTML += '<p>❌ RegisterForm component missing</p>';
+                }
+            })
+            .catch(error => {
+                document.body.innerHTML += '<p>❌ Error loading register page: ' + error + '</p>';
+            });
+    </script>
+</body>
+</html>

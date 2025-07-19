@@ -1,0 +1,374 @@
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut,
+  sendPasswordResetEmail,
+  updateProfile,
+  User as FirebaseUser,
+  GoogleAuthProvider,
+  GithubAuthProvider,
+  signInWithPopup,
+  onAuthStateChanged,
+  AuthError as FirebaseAuthError
+} from 'firebase/auth';
+import { 
+  doc, 
+  getDoc, 
+  setDoc, 
+  updateDoc, 
+  serverTimestamp
+} from 'firebase/firestore';
+import { auth, db } from './firebase';
+import { 
+  User, 
+  AuthCredentials, 
+  RegisterCredentials, 
+  UserMetadata, 
+  AuthError,
+  AuthEvent
+} from '../types/auth';
+
+// User metadata collection name
+const USER_METADATA_COLLECTION = 'userMetadata';
+
+// Convert Firebase User to our User type
+export const convertFirebaseUser = async (firebaseUser: FirebaseUser): Promise<User> => {
+  const metadata = await getUserMetadata(firebaseUser.uid);
+  
+  return {
+    uid: firebaseUser.uid,
+    email: firebaseUser.email,
+    displayName: firebaseUser.displayName,
+    photoURL: firebaseUser.photoURL,
+    emailVerified: firebaseUser.emailVerified,
+    phoneNumber: firebaseUser.phoneNumber,
+    createdAt: firebaseUser.metadata.creationTime ? new Date(firebaseUser.metadata.creationTime) : new Date(),
+    lastLoginAt: firebaseUser.metadata.lastSignInTime ? new Date(firebaseUser.metadata.lastSignInTime) : null,
+    metadata: metadata || getDefaultUserMetadata()
+  };
+};
+
+// Default user metadata
+const getDefaultUserMetadata = (): UserMetadata => ({
+  theme: 'light',
+  preferences: {
+    generateOnEnter: true,
+    autoSaveImages: true,
+    showAdvancedOptions: false
+  },
+  stats: {
+    imagesGenerated: 0,
+    lastGeneratedAt: null
+  }
+});
+
+// Get user metadata from Firestore
+export const getUserMetadata = async (uid: string): Promise<UserMetadata | null> => {
+  try {
+    const docRef = doc(db, USER_METADATA_COLLECTION, uid);
+    const docSnap = await getDoc(docRef);
+    
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      return {
+        theme: data.theme || 'light',
+        preferences: data.preferences || getDefaultUserMetadata().preferences,
+        stats: {
+          imagesGenerated: data.stats?.imagesGenerated || 0,
+          lastGeneratedAt: data.stats?.lastGeneratedAt?.toDate() || null
+        }
+      };
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error fetching user metadata:', error);
+    return null;
+  }
+};
+
+// Save user metadata to Firestore
+export const saveUserMetadata = async (uid: string, metadata: UserMetadata): Promise<void> => {
+  try {
+    const docRef = doc(db, USER_METADATA_COLLECTION, uid);
+    await setDoc(docRef, {
+      ...metadata,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+  } catch (error) {
+    console.error('Error saving user metadata:', error);
+    throw new Error('Failed to save user preferences');
+  }
+};
+
+// Update user metadata
+export const updateUserMetadata = async (uid: string, updates: Partial<UserMetadata>): Promise<void> => {
+  try {
+    const docRef = doc(db, USER_METADATA_COLLECTION, uid);
+    await updateDoc(docRef, {
+      ...updates,
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error updating user metadata:', error);
+    throw new Error('Failed to update user preferences');
+  }
+};
+
+// Convert Firebase Auth error to our error type
+export const convertAuthError = (error: FirebaseAuthError): AuthError => {
+  const errorMessages: Record<string, string> = {
+    'auth/user-not-found': 'No account found with this email address.',
+    'auth/wrong-password': 'Incorrect password.',
+    'auth/invalid-email': 'Please enter a valid email address.',
+    'auth/email-already-in-use': 'An account with this email already exists.',
+    'auth/weak-password': 'Password should be at least 6 characters.',
+    'auth/network-request-failed': 'Network error. Please check your connection.',
+    'auth/too-many-requests': 'Too many failed attempts. Please try again later.',
+    'auth/user-disabled': 'This account has been disabled.',
+    'auth/requires-recent-login': 'Please log in again to perform this action.',
+    'auth/invalid-credential': 'Invalid credentials. Please check your email and password.',
+    'auth/popup-closed-by-user': 'Sign-in popup was closed before completing.',
+    'auth/cancelled-popup-request': 'Sign-in was cancelled.',
+    'auth/popup-blocked': 'Sign-in popup was blocked by the browser.'
+  };
+
+  return {
+    code: error.code,
+    message: errorMessages[error.code] || error.message || 'An unexpected error occurred.'
+  };
+};
+
+// Track authentication events
+const trackAuthEvent = (event: AuthEvent): void => {
+  // Use existing analytics if available, otherwise console log
+  try {
+    if (typeof window !== 'undefined' && (window as any).gtag) {
+      (window as any).gtag('event', 'auth_event', {
+        type: event.type,
+        provider: event.provider,
+        timestamp: event.timestamp.toISOString(),
+        userId: event.userId
+      });
+    } else {
+      console.log('Auth Event:', event);
+    }
+  } catch (error) {
+    console.log('Auth Event (fallback):', event);
+  }
+};
+
+// Sign in with email and password
+export const signInWithEmail = async (credentials: AuthCredentials): Promise<User> => {
+  try {
+    const userCredential = await signInWithEmailAndPassword(auth, credentials.email, credentials.password);
+    const user = await convertFirebaseUser(userCredential.user);
+    
+    trackAuthEvent({
+      type: 'sign_in',
+      provider: 'email',
+      timestamp: new Date(),
+      userId: user.uid
+    });
+    
+    return user;
+  } catch (error) {
+    throw convertAuthError(error as FirebaseAuthError);
+  }
+};
+
+// Sign up with email and password
+export const signUpWithEmail = async (credentials: RegisterCredentials): Promise<User> => {
+  try {
+    const userCredential = await createUserWithEmailAndPassword(auth, credentials.email, credentials.password);
+    
+    // Update display name
+    await updateProfile(userCredential.user, {
+      displayName: credentials.displayName
+    });
+    
+    const user = await convertFirebaseUser(userCredential.user);
+    
+    // Save default user metadata
+    await saveUserMetadata(user.uid, getDefaultUserMetadata());
+    
+    trackAuthEvent({
+      type: 'sign_up',
+      provider: 'email',
+      timestamp: new Date(),
+      userId: user.uid
+    });
+    
+    return user;
+  } catch (error) {
+    throw convertAuthError(error as FirebaseAuthError);
+  }
+};
+
+// Sign in with Google
+export const signInWithGoogle = async (): Promise<User> => {
+  try {
+    const provider = new GoogleAuthProvider();
+    provider.addScope('email');
+    provider.addScope('profile');
+    
+    const userCredential = await signInWithPopup(auth, provider);
+    const user = await convertFirebaseUser(userCredential.user);
+    
+    // Save default metadata if this is a new user
+    const existingMetadata = await getUserMetadata(user.uid);
+    if (!existingMetadata) {
+      await saveUserMetadata(user.uid, getDefaultUserMetadata());
+    }
+    
+    trackAuthEvent({
+      type: 'sign_in',
+      provider: 'google',
+      timestamp: new Date(),
+      userId: user.uid
+    });
+    
+    return user;
+  } catch (error) {
+    throw convertAuthError(error as FirebaseAuthError);
+  }
+};
+
+// Sign in with GitHub
+export const signInWithGitHub = async (): Promise<User> => {
+  try {
+    const provider = new GithubAuthProvider();
+    provider.addScope('user:email');
+    
+    const userCredential = await signInWithPopup(auth, provider);
+    const user = await convertFirebaseUser(userCredential.user);
+    
+    // Save default metadata if this is a new user
+    const existingMetadata = await getUserMetadata(user.uid);
+    if (!existingMetadata) {
+      await saveUserMetadata(user.uid, getDefaultUserMetadata());
+    }
+    
+    trackAuthEvent({
+      type: 'sign_in',
+      provider: 'github',
+      timestamp: new Date(),
+      userId: user.uid
+    });
+    
+    return user;
+  } catch (error) {
+    throw convertAuthError(error as FirebaseAuthError);
+  }
+};
+
+// Sign out
+export const signOutUser = async (): Promise<void> => {
+  try {
+    const currentUser = auth.currentUser;
+    await signOut(auth);
+    
+    if (currentUser) {
+      trackAuthEvent({
+        type: 'sign_out',
+        provider: 'system',
+        timestamp: new Date(),
+        userId: currentUser.uid
+      });
+    }
+  } catch (error) {
+    throw convertAuthError(error as FirebaseAuthError);
+  }
+};
+
+// Reset password
+export const resetPassword = async (email: string): Promise<void> => {
+  try {
+    await sendPasswordResetEmail(auth, email);
+    
+    trackAuthEvent({
+      type: 'password_reset',
+      provider: 'email',
+      timestamp: new Date()
+    });
+  } catch (error) {
+    throw convertAuthError(error as FirebaseAuthError);
+  }
+};
+
+// Update user profile
+export const updateUserProfile = async (updates: { displayName?: string; photoURL?: string }): Promise<void> => {
+  try {
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      throw new Error('No authenticated user');
+    }
+    
+    await updateProfile(currentUser, updates);
+    
+    trackAuthEvent({
+      type: 'profile_update',
+      provider: 'system',
+      timestamp: new Date(),
+      userId: currentUser.uid
+    });
+  } catch (error) {
+    throw convertAuthError(error as FirebaseAuthError);
+  }
+};
+
+// Auth state observer
+export const onAuthStateChange = (callback: (user: User | null) => void): (() => void) => {
+  if (!auth) {
+    console.warn('Firebase auth not initialized, returning empty unsubscribe function');
+    return () => {};
+  }
+  
+  return onAuthStateChanged(auth, async (firebaseUser) => {
+    if (firebaseUser) {
+      try {
+        const user = await convertFirebaseUser(firebaseUser);
+        callback(user);
+      } catch (error) {
+        console.error('Error converting Firebase user:', error);
+        callback(null);
+      }
+    } else {
+      callback(null);
+    }
+  });
+};
+
+// Get current user
+export const getCurrentUser = async (): Promise<User | null> => {
+  if (!auth) {
+    console.warn('Firebase auth not initialized');
+    return null;
+  }
+  
+  const firebaseUser = auth.currentUser;
+  if (!firebaseUser) return null;
+  
+  try {
+    return await convertFirebaseUser(firebaseUser);
+  } catch (error) {
+    console.error('Error getting current user:', error);
+    return null;
+  }
+};
+
+// Wait for auth initialization
+export const waitForAuthInitialization = (): Promise<void> => {
+  return new Promise((resolve) => {
+    if (!auth) {
+      console.warn('Firebase auth not initialized, resolving immediately');
+      resolve();
+      return;
+    }
+    
+    const unsubscribe = onAuthStateChanged(auth, () => {
+      unsubscribe();
+      resolve();
+    });
+  });
+};

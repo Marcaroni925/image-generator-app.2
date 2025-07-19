@@ -1,0 +1,6 @@
+@echo off
+echo Starting AI Coloring Page Generator (Development Mode)...
+echo.
+echo Opening WSL and starting the development server...
+wsl -d Ubuntu -e bash -c "cd /mnt/c/Users/mtdew/SuperClaude/image-generator-app && npm run dev"
+pause

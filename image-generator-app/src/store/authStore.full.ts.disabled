@@ -1,0 +1,273 @@
+import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
+import { 
+  User, 
+  AuthState, 
+  AuthCredentials, 
+  RegisterCredentials, 
+  UserMetadata 
+} from '../types/auth';
+import {
+  signInWithEmail,
+  signUpWithEmail,
+  signInWithGoogle,
+  signInWithGitHub,
+  signOutUser,
+  resetPassword,
+  updateUserProfile,
+  updateUserMetadata,
+  onAuthStateChange,
+  getCurrentUser,
+  waitForAuthInitialization
+} from '../services/auth';
+
+interface AuthStore extends AuthState {
+  // Actions
+  signIn: (credentials: AuthCredentials) => Promise<void>;
+  signUp: (credentials: RegisterCredentials) => Promise<void>;
+  signOut: () => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
+  updateProfile: (updates: { displayName?: string; photoURL?: string }) => Promise<void>;
+  updateUserMetadata: (metadata: Partial<UserMetadata>) => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
+  signInWithGitHub: () => Promise<void>;
+  clearError: () => void;
+  initialize: () => Promise<void>;
+  
+  // Internal state management
+  setUser: (user: User | null) => void;
+  setLoading: (loading: boolean) => void;
+  setError: (error: string | null) => void;
+  setInitialized: (initialized: boolean) => void;
+}
+
+const useAuthStore = create<AuthStore>()(
+  persist(
+    (set, get) => ({
+      // Initial state
+      user: null,
+      isLoading: false,
+      isAuthenticated: false,
+      error: null,
+      initialized: false,
+
+      // Actions
+      signIn: async (credentials: AuthCredentials) => {
+        set({ isLoading: true, error: null });
+        try {
+          const user = await signInWithEmail(credentials);
+          set({ 
+            user, 
+            isAuthenticated: true, 
+            isLoading: false 
+          });
+        } catch (error: any) {
+          set({ 
+            error: error.message, 
+            isLoading: false 
+          });
+          throw error;
+        }
+      },
+
+      signUp: async (credentials: RegisterCredentials) => {
+        set({ isLoading: true, error: null });
+        try {
+          const user = await signUpWithEmail(credentials);
+          set({ 
+            user, 
+            isAuthenticated: true, 
+            isLoading: false 
+          });
+        } catch (error: any) {
+          set({ 
+            error: error.message, 
+            isLoading: false 
+          });
+          throw error;
+        }
+      },
+
+      signOut: async () => {
+        set({ isLoading: true, error: null });
+        try {
+          await signOutUser();
+          set({ 
+            user: null, 
+            isAuthenticated: false, 
+            isLoading: false 
+          });
+        } catch (error: any) {
+          set({ 
+            error: error.message, 
+            isLoading: false 
+          });
+          throw error;
+        }
+      },
+
+      resetPassword: async (email: string) => {
+        set({ isLoading: true, error: null });
+        try {
+          await resetPassword(email);
+          set({ isLoading: false });
+        } catch (error: any) {
+          set({ 
+            error: error.message, 
+            isLoading: false 
+          });
+          throw error;
+        }
+      },
+
+      updateProfile: async (updates: { displayName?: string; photoURL?: string }) => {
+        set({ isLoading: true, error: null });
+        try {
+          await updateUserProfile(updates);
+          const currentUser = get().user;
+          if (currentUser) {
+            set({ 
+              user: { ...currentUser, ...updates }, 
+              isLoading: false 
+            });
+          }
+        } catch (error: any) {
+          set({ 
+            error: error.message, 
+            isLoading: false 
+          });
+          throw error;
+        }
+      },
+
+      updateUserMetadata: async (metadata: Partial<UserMetadata>) => {
+        set({ isLoading: true, error: null });
+        try {
+          const currentUser = get().user;
+          if (!currentUser) {
+            throw new Error('No authenticated user');
+          }
+          
+          await updateUserMetadata(currentUser.uid, metadata);
+          
+          set({ 
+            user: { 
+              ...currentUser, 
+              metadata: { ...currentUser.metadata, ...metadata } 
+            }, 
+            isLoading: false 
+          });
+        } catch (error: any) {
+          set({ 
+            error: error.message, 
+            isLoading: false 
+          });
+          throw error;
+        }
+      },
+
+      signInWithGoogle: async () => {
+        set({ isLoading: true, error: null });
+        try {
+          const user = await signInWithGoogle();
+          set({ 
+            user, 
+            isAuthenticated: true, 
+            isLoading: false 
+          });
+        } catch (error: any) {
+          set({ 
+            error: error.message, 
+            isLoading: false 
+          });
+          throw error;
+        }
+      },
+
+      signInWithGitHub: async () => {
+        set({ isLoading: true, error: null });
+        try {
+          const user = await signInWithGitHub();
+          set({ 
+            user, 
+            isAuthenticated: true, 
+            isLoading: false 
+          });
+        } catch (error: any) {
+          set({ 
+            error: error.message, 
+            isLoading: false 
+          });
+          throw error;
+        }
+      },
+
+      clearError: () => {
+        set({ error: null });
+      },
+
+      initialize: async () => {
+        set({ isLoading: true });
+        
+        try {
+          // Wait for Firebase Auth to initialize
+          await waitForAuthInitialization();
+          
+          // Get current user if available
+          const currentUser = await getCurrentUser();
+          
+          set({ 
+            user: currentUser, 
+            isAuthenticated: !!currentUser, 
+            isLoading: false,
+            initialized: true 
+          });
+          
+          // Set up auth state listener
+          onAuthStateChange((user) => {
+            set({ 
+              user, 
+              isAuthenticated: !!user,
+              isLoading: false 
+            });
+          });
+          
+        } catch (error: any) {
+          console.error('Auth initialization error:', error);
+          set({ 
+            error: error.message, 
+            isLoading: false,
+            initialized: true 
+          });
+        }
+      },
+
+      // Internal state management
+      setUser: (user: User | null) => {
+        set({ user, isAuthenticated: !!user });
+      },
+
+      setLoading: (isLoading: boolean) => {
+        set({ isLoading });
+      },
+
+      setError: (error: string | null) => {
+        set({ error });
+      },
+
+      setInitialized: (initialized: boolean) => {
+        set({ initialized });
+      }
+    }),
+    {
+      name: 'auth-store',
+      partialize: (state) => ({
+        // Only persist user data, not loading states
+        user: state.user,
+        isAuthenticated: state.isAuthenticated
+      })
+    }
+  )
+);
+
+export default useAuthStore;

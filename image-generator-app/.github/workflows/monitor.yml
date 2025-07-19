@@ -1,0 +1,46 @@
+name: Monitoring & Health Checks
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'  # Every 6 hours
+  workflow_dispatch:
+
+jobs:
+  health-check:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18.x'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Build and test
+      run: |
+        npm run build
+        npm run lint
+    
+    - name: Check bundle size
+      run: |
+        npm run build
+        ls -la dist/
+        du -sh dist/
+    
+    - name: Security audit
+      run: npm audit --audit-level=moderate
+    
+    - name: Check for outdated packages
+      run: npm outdated || true
+    
+    - name: Performance check
+      run: |
+        echo "Build size analysis:"
+        find dist -name "*.js" -exec wc -c {} + | sort -n
+        echo "CSS analysis:"
+        find dist -name "*.css" -exec wc -c {} + | sort -n
