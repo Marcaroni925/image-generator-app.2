@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, memo } from 'react';
 import { TransformWrapper, TransformComponent } from 'react-zoom-pan-pinch';
 import './PromptComponent.css';
 
-const PromptComponent = () => {
+const PromptComponent = ({ user: _user }) => {
   const [formData, setFormData] = useState({
     prompt: '',
     theme: '',
@@ -30,7 +30,14 @@ const PromptComponent = () => {
 
   // Real-time validation
   useEffect(() => {
-    const newValidation = { ...validation };
+    const newValidation = {
+      prompt: { isValid: false, message: '' },
+      complexity: { isValid: false, message: '' },
+      ageGroup: { isValid: false, message: '' },
+      lineThickness: { isValid: false, message: '' },
+      border: { isValid: true, message: '' },
+      theme: { isValid: true, message: '' }
+    };
     
     // Prompt validation
     if (formData.prompt.trim().length > 0) {
@@ -476,4 +483,4 @@ const PromptComponent = () => {
   );
 };
 
-export default PromptComponent;
+export default memo(PromptComponent);
